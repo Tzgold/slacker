@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Wrangler / Cloudflare local state (may contain account info)
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+
+# Wrangler cache (account id, email)
+**/.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Secrets — never commit API tokens
+*.pem
+*.key
+secrets.json
+
+# Local Cloudflare config (contains your KV namespace id)
+wrangler.toml
+worker/wrangler.toml
+
+# Cursor / local assets (optional)
+assets/

@@ -1,0 +1,25 @@
+/* styles.css — injected into every slack.com tab */
+
+.slacker-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+  vertical-align: middle;
+  line-height: 1.6;
+  pointer-events: none;
+  transition: background 0.3s, color 0.3s;
+}
+
+.slacker-pill--delivered {
+  background: #f0f0f0;
+  color: #888;
+}
+
+.slacker-pill--seen {
+  background: #e6f4ea;
+  color: #2e7d32;
+}

@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Slacker - Slack Read Receipts",
+  "version": "1.0.0",
+  "description": "See when your Slack messages have been read, without the other person knowing.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "*://*.slack.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Slacker"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.slack.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["styles.css"],
+      "matches": ["*://*.slack.com/*"]
+    }
+  ]
+}

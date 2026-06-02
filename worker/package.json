@@ -1,0 +1,15 @@
+{
+  "name": "slacker-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "login": "wrangler login",
+    "kv:create": "wrangler kv namespace create SLACKER_KV",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

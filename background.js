@@ -1,55 +1,52 @@
-// background.js — Manifest V3 service worker
+// background.js
 
-const STORAGE_KEY_URL  = 'slacker_worker_url';
+const STORAGE_KEY_URL = 'slacker_worker_url';
 const STORAGE_KEY_MSGS = 'slacker_messages';
-const POLL_ALARM       = 'slacker_poll';
-const POLL_INTERVAL    = 0.5;   // minutes (≈30 seconds; alarms minimum is 1 min in prod, 0.5 in dev)
-const BATCH_SIZE       = 50;    // max IDs per /status request
+const POLL_ALARM = 'slacker_poll';
+const DEFAULT_WORKER = 'https://slacker.tzgold.workers.dev';
 
-// ─── Startup ──────────────────────────────────────────────────────────────────
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(POLL_ALARM, { periodInMinutes: POLL_INTERVAL });
+chrome.runtime.onInstalled.addListener(async () => {
+  const { [STORAGE_KEY_URL]: url } = await chrome.storage.local.get(STORAGE_KEY_URL);
+  if (!url) await chrome.storage.local.set({ [STORAGE_KEY_URL]: DEFAULT_WORKER });
+  chrome.alarms.create(POLL_ALARM, { periodInMinutes: 0.5 });
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  chrome.alarms.create(POLL_ALARM, { periodInMinutes: POLL_INTERVAL });
+  chrome.alarms.create(POLL_ALARM, { periodInMinutes: 0.5 });
 });
 
-// ─── Alarm — poll worker for new read events ──────────────────────────────────
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== POLL_ALARM) return;
-  await pollForReceipts();
+  if (alarm.name === POLL_ALARM) await pollForReceipts();
 });
 
 async function pollForReceipts() {
-  const { [STORAGE_KEY_URL]: workerUrl, [STORAGE_KEY_MSGS]: tracked } =
-    await chrome.storage.local.get([STORAGE_KEY_URL, STORAGE_KEY_MSGS]);
+  const data = await chrome.storage.local.get([STORAGE_KEY_URL, STORAGE_KEY_MSGS]);
+  const workerUrl = (data[STORAGE_KEY_URL] || DEFAULT_WORKER).replace(/\/$/, '');
+  const tracked = data[STORAGE_KEY_MSGS];
+  if (!tracked) return;
 
-  if (!workerUrl || !tracked) return;
-
-  // Only poll for messages that haven't been seen yet
   const unseenIds = Object.entries(tracked)
     .filter(([, v]) => !v.seen)
     .map(([id]) => id);
 
   if (unseenIds.length === 0) {
-    updateBadge(0);
+    updateBadge(Object.values(tracked).filter((v) => v.seen).length);
     return;
   }
 
   let anyUpdated = false;
 
-  // Send IDs in batches to stay within URL length limits
-  for (let i = 0; i < unseenIds.length; i += BATCH_SIZE) {
-    const batch = unseenIds.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < unseenIds.length; i += 40) {
+    const batch = unseenIds.slice(i, i + 40);
     try {
-      const res  = await fetch(`${workerUrl}/status?ids=${batch.join(',')}`);
+      const res = await fetch(`${workerUrl}/status?ids=${encodeURIComponent(batch.join(','))}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) continue;
-      const data = await res.json();   // { [msgId]: { seenAt: <epoch ms> } | null }
-
-      for (const [msgId, receipt] of Object.entries(data)) {
-        if (receipt && receipt.seenAt && tracked[msgId]) {
-          tracked[msgId].seen   = true;
+      const json = await res.json();
+      for (const [msgId, receipt] of Object.entries(json)) {
+        if (receipt?.seenAt && tracked[msgId]) {
+          tracked[msgId].seen = true;
           tracked[msgId].seenAt = receipt.seenAt;
           anyUpdated = true;
         }
@@ -61,47 +58,43 @@ async function pollForReceipts() {
 
   if (anyUpdated) {
     await chrome.storage.local.set({ [STORAGE_KEY_MSGS]: tracked });
-    updateBadge(Object.values(tracked).filter(v => v.seen).length);
+    updateBadge(Object.values(tracked).filter((v) => v.seen).length);
     notifyAllSlackTabs(tracked);
   }
 }
 
-// ─── Push updates to content scripts in open Slack tabs ───────────────────────
 async function notifyAllSlackTabs(tracked) {
   const tabs = await chrome.tabs.query({ url: '*://*.slack.com/*' });
   for (const tab of tabs) {
-    chrome.tabs.sendMessage(tab.id, { type: 'RECEIPTS_UPDATE', data: tracked })
-      .catch(() => {});  // tab may not have content script ready
+    chrome.tabs.sendMessage(tab.id, { type: 'RECEIPTS_UPDATE', data: tracked }).catch(() => {});
   }
 }
 
-// ─── Messages from content script ────────────────────────────────────────────
+function schedulePolls() {
+  [1500, 4000, 8000, 15000, 30000].forEach((ms) => setTimeout(pollForReceipts, ms));
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'TRACK_MSG') {
-    // A new sent message was detected — trigger an early poll in 5 seconds
-    // so we don't wait the full 30s for the first check
-    setTimeout(pollForReceipts, 5000);
+    schedulePolls();
     sendResponse({ ok: true });
   }
   if (msg.type === 'GET_RECEIPTS') {
-    chrome.storage.local.get(STORAGE_KEY_MSGS, (d) => {
-      sendResponse(d[STORAGE_KEY_MSGS] || {});
-    });
-    return true;  // keep channel open for async response
+    chrome.storage.local.get(STORAGE_KEY_MSGS, (d) => sendResponse(d[STORAGE_KEY_MSGS] || {}));
+    return true;
   }
   if (msg.type === 'CLEAR_RECEIPTS') {
     chrome.storage.local.remove(STORAGE_KEY_MSGS);
     updateBadge(0);
     sendResponse({ ok: true });
   }
+  if (msg.type === 'FORCE_POLL') {
+    pollForReceipts().then(() => sendResponse({ ok: true }));
+    return true;
+  }
 });
 
-// ─── Badge ────────────────────────────────────────────────────────────────────
-function updateBadge(unseenCount) {
-  if (unseenCount > 0) {
-    chrome.action.setBadgeText({ text: String(unseenCount) });
-    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
-  }
+function updateBadge(count) {
+  chrome.action.setBadgeText({ text: count > 0 ? String(count) : '' });
+  chrome.action.setBadgeBackgroundColor({ color: '#0f766e' });
 }

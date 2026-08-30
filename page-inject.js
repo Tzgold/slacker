@@ -1,5 +1,8 @@
-// Runs in the page MAIN world — can access window.TS, fetch responses, etc.
+// page-inject.js — MAIN world
 (function () {
+  if (window.__slackerInjected) return;
+  window.__slackerInjected = true;
+
   const SOURCE = 'slacker-page';
 
   function post(payload) {
@@ -16,45 +19,78 @@
       if (cfg) {
         const parsed = JSON.parse(cfg);
         for (const team of Object.values(parsed.teams || {})) {
-          if (team?.user?.id) return team.user.id;
-          if (team?.user_id) return team.user_id;
+          const id = team?.user?.id || team?.user_id;
+          if (id && /^U[A-Z0-9]+$/i.test(id)) return id;
         }
       }
     } catch (_) {}
     return null;
   }
 
-  function extractFromResponse(url, data) {
+  function isSendApi(url) {
+    if (!url || typeof url !== 'string') return false;
+    const u = url.toLowerCase();
+    return (
+      u.includes('chat.postmessage') ||
+      u.includes('chat.memessage') ||
+      u.includes('chat.postmemessage') ||
+      u.includes('conversations.memessage')
+    );
+  }
+
+  function isBootApi(url) {
+    if (!url || typeof url !== 'string') return false;
+    const u = url.toLowerCase();
+    return (
+      u.includes('client.userboot') ||
+      u.includes('client.boot') ||
+      u.includes('rtm.start') ||
+      u.includes('auth.test')
+    );
+  }
+
+  function handleJson(url, data) {
     if (!data || typeof data !== 'object') return;
 
-    if (data.self?.id) {
-      post({ type: 'SLACKER_BOOT', userId: data.self.id });
+    if (data.self?.id) post({ type: 'SLACKER_BOOT', userId: data.self.id });
+    if (data.user_id && /^U[A-Z0-9]+$/i.test(data.user_id)) {
+      post({ type: 'SLACKER_BOOT', userId: data.user_id });
     }
+
+    if (!isSendApi(url) || data.ok === false) return;
 
     const ts = data.ts || data.message?.ts;
     const channel = data.channel || data.message?.channel;
     if (ts && channel) {
-      post({ type: 'SLACKER_SENT', ts: String(ts), channelId: channel, via: 'api', url });
+      post({
+        type: 'SLACKER_SENT',
+        ts: String(ts),
+        channelId: String(channel),
+        text: data.message?.text || '',
+      });
     }
   }
 
-  function shouldInspect(url) {
-    if (!url || typeof url !== 'string') return false;
-    return (
-      url.includes('slack.com/api/') ||
-      url.includes('/api/chat.') ||
-      url.includes('chat.postMessage') ||
-      url.includes('conversations.')
-    );
+  function urlOf(input) {
+    if (typeof input === 'string') return input;
+    if (input && typeof input.url === 'string') return input.url;
+    try {
+      if (input instanceof Request) return input.url;
+    } catch (_) {}
+    return '';
   }
 
   const origFetch = window.fetch;
   window.fetch = async function (...args) {
     const res = await origFetch.apply(this, args);
     try {
-      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-      if (shouldInspect(url)) {
-        res.clone().json().then((data) => extractFromResponse(url, data)).catch(() => {});
+      const url = urlOf(args[0]);
+      if (isSendApi(url) || isBootApi(url)) {
+        res
+          .clone()
+          .json()
+          .then((data) => handleJson(url, data))
+          .catch(() => {});
       }
     } catch (_) {}
     return res;
@@ -63,15 +99,15 @@
   const origOpen = XMLHttpRequest.prototype.open;
   const origSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    this.__slackerUrl = url;
+    this.__slackerUrl = typeof url === 'string' ? url : '';
     return origOpen.call(this, method, url, ...rest);
   };
   XMLHttpRequest.prototype.send = function (...args) {
     this.addEventListener('load', function () {
       try {
-        if (!shouldInspect(this.__slackerUrl)) return;
-        const data = JSON.parse(this.responseText);
-        extractFromResponse(this.__slackerUrl, data);
+        const url = this.__slackerUrl || '';
+        if (!isSendApi(url) && !isBootApi(url)) return;
+        handleJson(url, JSON.parse(this.responseText));
       } catch (_) {}
     });
     return origSend.apply(this, args);
@@ -83,7 +119,6 @@
   }
 
   publishBoot();
-  setInterval(publishBoot, 5000);
-
+  setInterval(publishBoot, 2500);
   post({ type: 'SLACKER_INJECT_READY' });
 })();

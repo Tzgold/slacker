@@ -1,23 +1,40 @@
-﻿// content.js — isolated world; talks to page-inject.js via postMessage
+// content.js
+// Sent  = you sent it (this browser)
+// Seen  = another Slacker user viewed that message (same channelId + ts)
 
-const STORAGE_KEY_URL   = 'slacker_worker_url';
-const STORAGE_KEY_MSGS  = 'slacker_messages';
-const STORAGE_KEY_DEBUG = 'slacker_debug';
-const DEFAULT_WORKER    = 'https://your-worker.workers.dev';
-const PAGE_SOURCE       = 'slacker-page';
+const STORAGE_KEY_URL = 'slacker_worker_url';
+const STORAGE_KEY_MSGS = 'slacker_messages';
+const STORAGE_KEY_UID = 'slacker_user_id';
+const PAGE_SOURCE = 'slacker-page';
+const DEFAULT_WORKER = 'https://slacker.tzgold.workers.dev';
+const SESSION_START = Date.now();
 
-let workerUrl   = DEFAULT_WORKER;
+let workerUrl = DEFAULT_WORKER;
 let trackedMsgs = {};
-let myUserId    = null;
-let debug       = false;
+let myUserId = null;
 let injectReady = false;
 const pendingSends = [];
+const beaconed = new Set();
+let io = null;
 
-chrome.storage.local.get([STORAGE_KEY_URL, STORAGE_KEY_MSGS, STORAGE_KEY_DEBUG], (data) => {
-  if (data[STORAGE_KEY_URL]) workerUrl = data[STORAGE_KEY_URL];
+const TICK = `<svg class="slacker-ticks" viewBox="0 0 18 12" aria-hidden="true"><path d="M1.2 6.4l3 3L10.2 2"/><path class="slacker-tick-2" d="M7.2 6.4l3 3L16.2 2"/></svg>`;
+
+chrome.storage.local.get([STORAGE_KEY_URL, STORAGE_KEY_MSGS, STORAGE_KEY_UID], (data) => {
+  if (data[STORAGE_KEY_URL]) workerUrl = data[STORAGE_KEY_URL].replace(/\/$/, '');
+  else chrome.storage.local.set({ [STORAGE_KEY_URL]: DEFAULT_WORKER });
   if (data[STORAGE_KEY_MSGS]) trackedMsgs = data[STORAGE_KEY_MSGS];
-  debug = !!data[STORAGE_KEY_DEBUG];
+  if (data[STORAGE_KEY_UID]) myUserId = data[STORAGE_KEY_UID];
   init();
+});
+
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes[STORAGE_KEY_URL]?.newValue) {
+    workerUrl = String(changes[STORAGE_KEY_URL].newValue).replace(/\/$/, '');
+  }
+  if (changes[STORAGE_KEY_MSGS]?.newValue) {
+    trackedMsgs = changes[STORAGE_KEY_MSGS].newValue;
+    syncPillsToDOM();
+  }
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -27,99 +44,83 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-function log(...args) {
-  if (debug) console.log('[Slacker]', ...args);
+function info(...args) {
+  console.info('[Slacker]', ...args);
 }
 
-function warn(...args) {
-  console.warn('[Slacker]', ...args);
+function persistUserId(id) {
+  if (!id || myUserId === id) return;
+  myUserId = id;
+  chrome.storage.local.set({ [STORAGE_KEY_UID]: id });
+  info('user id =', id);
 }
 
-function status() {
-  const containers = document.querySelectorAll('[data-qa="message_container"]').length;
-  return { myUserId, channelId: getChannelId(), containers, tracked: Object.keys(trackedMsgs).length, injectReady };
-}
-
-// ─── Page bridge (MAIN world inject) ─────────────────────────────────────────
 window.addEventListener('message', (event) => {
   if (event.source !== window || !event.data || event.data.source !== PAGE_SOURCE) return;
+  const { type } = event.data;
 
-  if (event.data.type === 'SLACKER_INJECT_READY') {
+  if (type === 'SLACKER_INJECT_READY') {
     injectReady = true;
-    log('page inject ready');
+    info('inject ready');
   }
 
-  if (event.data.type === 'SLACKER_BOOT' && event.data.userId) {
-    if (!myUserId) {
-      myUserId = event.data.userId;
-      log('user id from page:', myUserId);
-      scanAllMessages();
-    }
+  if (type === 'SLACKER_BOOT' && event.data.userId) {
+    persistUserId(event.data.userId);
+    scanOwnMessages();
   }
 
-  if (event.data.type === 'SLACKER_SENT' && event.data.ts && event.data.channelId) {
-    log('sent via API', event.data);
-    trackByTs(event.data.channelId, event.data.ts);
+  if (type === 'SLACKER_SENT' && event.data.ts && event.data.channelId) {
+    info('API send', event.data.channelId, event.data.ts);
+    trackSent(event.data.channelId, event.data.ts, event.data.text || '');
   }
 });
 
-// ─── Init ────────────────────────────────────────────────────────────────────
 function init() {
   waitForSlackBoot(() => {
-    myUserId = myUserId || resolveMyUserId();
     startObserver();
     listenForSends();
-    scanAllMessages();
-    setInterval(scanAllMessages, 2000);
-    setInterval(matchPendingSends, 1500);
+    setupViewportBeacons();
+    scanOwnMessages();
+    beaconVisibleOthers();
+    setInterval(() => {
+      scanOwnMessages();
+      beaconVisibleOthers();
+    }, 2000);
     syncPillsToDOM();
-
-    console.info('[Slacker] loaded', status());
-    if (!injectReady) warn('Page inject not ready yet — reload Slack tab if tracking fails.');
-    if (!myUserId) warn('User id unknown — send a message; API hook should still track it.');
-    if (!getChannelId()) warn('Channel id unknown — open a channel/DM first.');
+    info('loaded', {
+      myUserId,
+      channelId: getChannelId(),
+      containers: document.querySelectorAll('[data-qa="message_container"]').length,
+      tracked: Object.keys(trackedMsgs).length,
+      injectReady,
+      workerUrl,
+    });
   });
 }
 
 function waitForSlackBoot(cb) {
   const check = () => {
-    const ready =
+    if (
       document.querySelector('[data-qa="message_input"]') ||
-      document.querySelector('[data-qa="message_list"]') ||
-      document.querySelector('[data-qa="message_container"]');
-    if (ready) return cb();
+      document.querySelector('[data-qa="message_container"]')
+    ) {
+      return cb();
+    }
     setTimeout(check, 400);
   };
   check();
 }
 
-function resolveMyUserId() {
-  try {
-    const cfg = localStorage.getItem('localConfig_v2');
-    if (cfg) {
-      const parsed = JSON.parse(cfg);
-      for (const team of Object.values(parsed.teams || {})) {
-        const id = team?.user?.id || team?.user_id;
-        if (id && /^U[A-Z0-9]+$/i.test(id)) return id;
-      }
-    }
-    const htmlMatch = document.documentElement.innerHTML.match(/"user_id"\s*:\s*"(U[A-Z0-9]+)"/);
-    if (htmlMatch) return htmlMatch[1];
-  } catch (_) {}
-  return null;
-}
-
-// ─── Observer ────────────────────────────────────────────────────────────────
 function startObserver() {
   const target =
     document.querySelector('[data-qa="message_list"]') ||
     document.querySelector('.p-workspace__primary_view') ||
     document.body;
-
-  new MutationObserver(() => scanAllMessages()).observe(target, {
-    childList: true,
-    subtree: true,
-  });
+  new MutationObserver(() => {
+    scanOwnMessages();
+    observeNewMessagesForBeacons();
+    beaconVisibleOthers();
+  }).observe(target, { childList: true, subtree: true });
 }
 
 function listenForSends() {
@@ -128,31 +129,88 @@ function listenForSends() {
     const channelId = getChannelId();
     if (!text) return;
     pendingSends.push({ text, channelId, at: Date.now() });
-    if (pendingSends.length > 20) pendingSends.shift();
-    log('pending send captured', text.slice(0, 40));
-    setTimeout(matchPendingSends, 500);
-    setTimeout(matchPendingSends, 1500);
-    setTimeout(matchPendingSends, 3000);
+    if (pendingSends.length > 25) pendingSends.shift();
+    setTimeout(matchPendingSends, 350);
+    setTimeout(matchPendingSends, 1000);
+    setTimeout(matchPendingSends, 2400);
   };
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.shiftKey) return;
-    if (!e.target.closest?.('[data-qa="message_input"]')) return;
-    capture();
-  }, true);
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      if (!e.target.closest?.('[data-qa="message_input"]')) return;
+      capture();
+    },
+    true
+  );
 
-  document.addEventListener('click', (e) => {
-    const btn = e.target.closest?.('[data-qa="texty_send_button"], button[aria-label*="Send"]');
-    if (btn) capture();
-  }, true);
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (e.target.closest?.('[data-qa="texty_send_button"], button[aria-label*="Send"]')) {
+        capture();
+      }
+    },
+    true
+  );
 }
 
-// ─── Scans ───────────────────────────────────────────────────────────────────
-function scanAllMessages() {
+function trackSent(channelId, ts, text) {
+  const msgId = buildMsgId(channelId, ts);
+  if (!trackedMsgs[msgId]) {
+    trackedMsgs[msgId] = {
+      channelId,
+      ts: String(ts),
+      text: (text || '').slice(0, 120),
+      seen: false,
+      seenAt: null,
+      createdAt: Date.now(),
+    };
+    persistTracked();
+    info('tracked', msgId);
+    chrome.runtime.sendMessage({ type: 'TRACK_MSG', msgId }).catch(() => {});
+  }
+
+  const tryAttach = () => {
+    const el = findMessageByTs(ts) || findMessageByText(text);
+    if (el && isOwnMessage(el)) attachPill(el, msgId);
+  };
+  tryAttach();
+  setTimeout(tryAttach, 600);
+  setTimeout(tryAttach, 1600);
+}
+
+function slackTsMillis(ts) {
+  const n = parseFloat(String(ts));
+  if (!n) return 0;
+  return Math.floor(n * 1000);
+}
+
+function isRecentEnoughToTrack(ts) {
+  const ms = slackTsMillis(ts);
+  if (!ms) return false;
+  // Own messages from this session or last 6 hours (so pills persist after reload)
+  return Date.now() - ms < 6 * 60 * 60 * 1000 || ms >= SESSION_START - 60000;
+}
+
+function scanOwnMessages() {
   document.querySelectorAll('[data-qa="message_container"]').forEach((el) => {
-    if (isOwnMessage(el)) registerMessage(el);
+    if (!isOwnMessage(el)) return;
+    const ts = getMessageTs(el);
+    const channelId = getChannelId();
+    if (!ts || !channelId) return;
+    const msgId = buildMsgId(channelId, ts);
+    if (trackedMsgs[msgId]) {
+      attachPill(el, msgId);
+      return;
+    }
+    if (isRecentEnoughToTrack(ts)) {
+      trackSent(channelId, ts, getMessageText(el));
+    }
   });
   matchPendingSends();
+  observeNewMessagesForBeacons();
 }
 
 function matchPendingSends() {
@@ -161,70 +219,120 @@ function matchPendingSends() {
   if (!containers.length) return;
 
   for (const pending of pendingSends) {
-    if (now - pending.at > 60000) continue;
-
-    for (let i = containers.length - 1; i >= Math.max(0, containers.length - 15); i--) {
+    if (now - pending.at > 45000) continue;
+    for (let i = containers.length - 1; i >= Math.max(0, containers.length - 20); i--) {
       const el = containers[i];
       const text = getMessageText(el);
       if (!text || !pending.text) continue;
       if (text.trim() !== pending.text.trim() && !text.includes(pending.text)) continue;
 
-      const channelId = pending.channelId || getChannelId();
       const ts = getMessageTs(el);
-      if (channelId && ts) {
-        trackByTs(channelId, ts, el);
-        log('matched pending send by text', pending.text.slice(0, 30));
-        break;
+      const channelId = pending.channelId || getChannelId();
+      if (!ts || !channelId) continue;
+
+      if (isOwnMessage(el) || !myUserId) {
+        if (!myUserId) {
+          const sid = getSenderId(el);
+          if (sid) persistUserId(sid);
+        }
+        if (isOwnMessage(el) || !myUserId) {
+          trackSent(channelId, ts, text);
+        }
       }
-      registerMessage(el, true);
       break;
     }
   }
 }
 
-function trackByTs(channelId, ts, messageEl) {
-  const el = messageEl || findMessageByTs(ts);
-  if (!el) {
-    log('API sent but DOM node not found yet', ts);
-    const msgId = buildMsgId(channelId, ts);
-    if (!trackedMsgs[msgId]) {
-      trackedMsgs[msgId] = { channelId, ts: String(ts), seen: false, seenAt: null, createdAt: Date.now() };
-      persistTracked();
-      chrome.runtime.sendMessage({ type: 'TRACK_MSG', msgId }).catch(() => {});
-    }
-    setTimeout(() => trackByTs(channelId, ts), 1000);
-    return;
-  }
-  registerMessage(el, true);
+function setupViewportBeacons() {
+  io = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        maybeBeacon(entry.target);
+      }
+    },
+    { threshold: 0.15, rootMargin: '40px' }
+  );
+  observeNewMessagesForBeacons();
 }
 
-function findMessageByTs(ts) {
-  const norm = String(ts).replace('.', '');
-  for (const el of document.querySelectorAll('[data-qa="message_container"]')) {
-    const mts = getMessageTs(el);
-    if (!mts) continue;
-    if (mts === String(ts) || mts.replace('.', '') === norm) return el;
-  }
-  return null;
+function observeNewMessagesForBeacons() {
+  if (!io) return;
+  document.querySelectorAll('[data-qa="message_container"]').forEach((el) => {
+    if (el.dataset.slackerIo) return;
+    el.dataset.slackerIo = '1';
+    io.observe(el);
+  });
 }
 
-// ─── Message helpers ─────────────────────────────────────────────────────────
+function beaconVisibleOthers() {
+  document.querySelectorAll('[data-qa="message_container"]').forEach((el) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.height < 4) return;
+    if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+    maybeBeacon(el);
+  });
+}
+
+function maybeBeacon(messageEl) {
+  const ts = getMessageTs(messageEl);
+  const channelId = getChannelId();
+  if (!ts || !channelId) return;
+
+  const msgId = buildMsgId(channelId, ts);
+
+  // Never mark your own sends as seen from this browser
+  if (trackedMsgs[msgId] || isOwnMessage(messageEl)) return;
+
+  fireBeacon(msgId);
+}
+
+function fireBeacon(msgId) {
+  if (beaconed.has(msgId)) return;
+  beaconed.add(msgId);
+  if (!workerUrl) return;
+
+  const url = `${workerUrl}/pixel?id=${encodeURIComponent(msgId)}`;
+  fetch(url, { method: 'GET', mode: 'cors', keepalive: true, cache: 'no-store' })
+    .then((res) => {
+      if (res.ok) info('seen ping', msgId);
+    })
+    .catch(() => {
+      const img = new Image();
+      img.src = url;
+    });
+}
+
 function isOwnMessage(messageEl) {
-  const senderBtn = messageEl.querySelector('[data-qa="message_sender_name"], [data-message-sender]');
+  const senderBtn = messageEl.querySelector(
+    '[data-qa="message_sender_name"], [data-message-sender]'
+  );
   if (senderBtn) {
     const label = (senderBtn.textContent || '').trim().toLowerCase();
-    if (label === 'you' || label.includes('(you)')) return true;
-    const sid = senderBtn.getAttribute('data-message-sender');
-    if (sid) {
-      if (!myUserId) myUserId = sid;
-      if (myUserId && sid === myUserId) return true;
+    if (label === 'you' || label.includes('(you)')) {
+      const sid = senderBtn.getAttribute('data-message-sender') || getSenderId(messageEl);
+      if (sid) persistUserId(sid);
+      return true;
     }
   }
 
-  const senderId = getSenderId(messageEl);
-  if (senderId && myUserId && senderId === myUserId) return true;
+  let senderId = getSenderId(messageEl);
+  if (!senderId) {
+    let prev = messageEl.previousElementSibling;
+    for (let i = 0; i < 10 && prev; i++) {
+      const container = prev.matches?.('[data-qa="message_container"]')
+        ? prev
+        : prev.querySelector?.('[data-qa="message_container"]');
+      if (container) {
+        senderId = getSenderId(container);
+        if (senderId) break;
+      }
+      prev = prev.previousElementSibling;
+    }
+  }
 
-  return false;
+  return !!(senderId && myUserId && senderId === myUserId);
 }
 
 function getSenderId(messageEl) {
@@ -244,17 +352,18 @@ function getSenderId(messageEl) {
 function getMessageText(messageEl) {
   const textEl =
     messageEl.querySelector('[data-qa="message-text"]') ||
-    messageEl.querySelector('.c-message__message_blocks') ||
+    messageEl.querySelector('.c-message_kit__blocks') ||
     messageEl.querySelector('[data-qa="message_content"]');
-  return (textEl?.innerText || textEl?.textContent || '').trim();
+  if (!textEl) return '';
+  const clone = textEl.cloneNode(true);
+  clone.querySelectorAll('.slacker-pill, .slacker-checks').forEach((n) => n.remove());
+  return (clone.innerText || clone.textContent || '').trim();
 }
 
 function getMessageTs(messageEl) {
   const tsEl = messageEl.querySelector('[data-ts]');
-  if (tsEl) {
-    const ts = tsEl.getAttribute('data-ts');
-    if (ts) return String(ts);
-  }
+  if (tsEl?.getAttribute('data-ts')) return String(tsEl.getAttribute('data-ts'));
+
   const link = messageEl.querySelector('a[href*="/p"]');
   if (link?.href) {
     const m = link.href.match(/\/p(\d{10})(\d{6})/);
@@ -264,26 +373,22 @@ function getMessageTs(messageEl) {
 }
 
 function getChannelId() {
-  const path = location.pathname;
-  let m = path.match(/\/client\/[A-Z0-9]+\/([CDG][A-Z0-9]+)/i);
-  if (m) return m[1];
+  const path = location.pathname + location.hash;
+  const patterns = [
+    /\/client\/[A-Z0-9]+\/([CDG][A-Z0-9]+)/i,
+    /\/archives\/([CDG][A-Z0-9]+)/i,
+    /\/messages\/([CDG][A-Z0-9]+)/i,
+    /\/([CDG][A-Z0-9]{8,})\b/i,
+  ];
+  for (const re of patterns) {
+    const m = path.match(re);
+    if (m) return m[1];
+  }
 
-  m = path.match(/\/archives\/([A-Z0-9]+)/i);
-  if (m) return m[1];
-
-  try {
-    const cfg = localStorage.getItem('localConfig_v2');
-    if (cfg) {
-      const parsed = JSON.parse(cfg);
-      for (const team of Object.values(parsed.teams || {})) {
-        if (team?.activeChannel) return team.activeChannel;
-      }
-    }
-  } catch (_) {}
-
-  const active = document.querySelector('[data-qa="channel_sidebar_name"][data-channel-id]');
-  if (active) return active.getAttribute('data-channel-id');
-
+  const el = document.querySelector('[data-qa-channel-id], [data-channel-id]');
+  if (el) {
+    return el.getAttribute('data-qa-channel-id') || el.getAttribute('data-channel-id');
+  }
   return null;
 }
 
@@ -298,88 +403,77 @@ function buildMsgId(channelId, ts) {
   return `${channelId}_${String(ts).replace('.', '')}`;
 }
 
-// ─── Register / track ────────────────────────────────────────────────────────
-function registerMessage(messageEl, force) {
-  if (!force && !isOwnMessage(messageEl)) return;
-
-  const ts = getMessageTs(messageEl);
-  const channelId = getChannelId();
-  if (!ts || !channelId) {
-    log('register skip', { ts, channelId });
-    return;
+function findMessageByTs(ts) {
+  const norm = String(ts).replace('.', '');
+  for (const el of document.querySelectorAll('[data-qa="message_container"]')) {
+    const mts = getMessageTs(el);
+    if (!mts) continue;
+    if (mts === String(ts) || mts.replace('.', '') === norm) return el;
   }
-
-  const msgId = buildMsgId(channelId, ts);
-  if (!trackedMsgs[msgId]) {
-    trackedMsgs[msgId] = { channelId, ts, seen: false, seenAt: null, createdAt: Date.now() };
-    persistTracked();
-    log('tracked', msgId);
-    chrome.runtime.sendMessage({ type: 'TRACK_MSG', msgId }).catch(() => {});
-  }
-
-  injectPixel(messageEl, msgId);
-  renderPill(messageEl, msgId);
-  messageEl.setAttribute('data-slacker-tracked', msgId);
+  return null;
 }
 
-function injectPixel(messageEl, msgId) {
-  if (!workerUrl || workerUrl.includes('your-worker')) return;
-  if (messageEl.querySelector(`[data-slacker-id="${msgId}"]`)) return;
+function findMessageByText(text) {
+  if (!text) return null;
+  const containers = [...document.querySelectorAll('[data-qa="message_container"]')];
+  for (let i = containers.length - 1; i >= Math.max(0, containers.length - 12); i--) {
+    const t = getMessageText(containers[i]);
+    if (t && (t.trim() === text.trim() || t.includes(text))) return containers[i];
+  }
+  return null;
+}
 
-  const img = document.createElement('img');
-  img.src = `${workerUrl.replace(/\/$/, '')}/pixel?id=${encodeURIComponent(msgId)}`;
-  img.width = 1;
-  img.height = 1;
-  img.setAttribute('data-slacker-id', msgId);
-  img.alt = '';
-  img.style.cssText = 'width:1px;height:1px;opacity:0;position:absolute;pointer-events:none;';
-
-  const host =
-    messageEl.querySelector('[data-qa="message-text"]') ||
-    messageEl.querySelector('.c-message_kit__blocks') ||
-    messageEl;
-  host.appendChild(img);
+function attachPill(messageEl, msgId) {
+  if (!isOwnMessage(messageEl) && !messageEl.querySelector('.slacker-checks')) {
+    // Only show checks on messages we sent
+    if (!trackedMsgs[msgId]) return;
+  }
+  messageEl.setAttribute('data-slacker-tracked', msgId);
+  renderPill(messageEl, msgId);
 }
 
 function renderPill(messageEl, msgId) {
   const data = trackedMsgs[msgId];
   if (!data) return;
 
-  let pill = messageEl.querySelector('.slacker-pill');
-  if (!pill) {
-    pill = document.createElement('div');
-    pill.className = 'slacker-pill slacker-pill--delivered';
-    pill.style.cssText = 'display:inline-block;font-size:11px;margin-top:2px;padding:1px 6px;border-radius:8px;';
+  let wrap = messageEl.querySelector('.slacker-checks');
+  if (!wrap) {
+    wrap = document.createElement('span');
+    wrap.className = 'slacker-checks';
+    wrap.innerHTML = TICK;
     const anchor =
+      messageEl.querySelector('[data-qa="timestamp_label"]') ||
+      messageEl.querySelector('.c-timestamp') ||
       messageEl.querySelector('[data-qa="message-text"]') ||
       messageEl.querySelector('.c-message_kit__blocks') ||
-      messageEl.querySelector('[data-qa="message_content"]') ||
       messageEl;
-    (anchor.parentNode || messageEl).appendChild(pill);
+    if (anchor.parentNode && anchor !== messageEl) {
+      anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
+    } else {
+      messageEl.appendChild(wrap);
+    }
   }
 
-  if (data.seen && data.seenAt) {
-    const time = new Date(data.seenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    pill.textContent = `✓✓ Seen ${time}`;
-    pill.style.background = '#e6f4ea';
-    pill.style.color = '#2e7d32';
+  const seen = !!(data.seen && data.seenAt);
+  wrap.classList.toggle('is-seen', seen);
+  wrap.classList.toggle('is-sent', !seen);
+
+  if (seen) {
+    const time = new Date(data.seenAt).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    wrap.title = `Seen ${time}`;
   } else {
-    pill.textContent = '✓ Delivered';
-    pill.style.background = '#f0f0f0';
-    pill.style.color = '#888';
+    wrap.title = 'Sent — waiting for them to open this in Slack with Slacker';
   }
 }
 
 function syncPillsToDOM() {
-  for (const msgId of Object.keys(trackedMsgs)) {
+  for (const [msgId, data] of Object.entries(trackedMsgs)) {
     const el =
-      document.querySelector(`[data-slacker-tracked="${msgId}"]`) ||
-      document.querySelector(`[data-slacker-id="${msgId}"]`)?.closest('[data-qa="message_container"]') ||
-      findMessageByTs(trackedMsgs[msgId].ts);
-    if (el) {
-      injectPixel(el, msgId);
-      renderPill(el, msgId);
-    }
+      document.querySelector(`[data-slacker-tracked="${msgId}"]`) || findMessageByTs(data.ts);
+    if (el) attachPill(el, msgId);
   }
 }
 

@@ -1,16 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "Slacker - Slack Read Receipts",
-  "version": "1.0.1",
-  "description": "See when your Slack messages have been read, without the other person knowing.",
+  "name": "Slacker",
+  "version": "1.2.0",
+  "description": "Telegram-style checks on your Slack messages. Seen works when the other person also uses Slacker.",
   "permissions": [
-    "activeTab",
     "storage",
-    "scripting",
-    "alarms"
+    "alarms",
+    "tabs"
   ],
   "host_permissions": [
-    "*://*.slack.com/*"
+    "*://*.slack.com/*",
+    "*://*.workers.dev/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -26,22 +26,22 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.slack.com/*"],
+      "matches": [
+        "*://*.slack.com/*",
+        "*://app.slack.com/*"
+      ],
       "js": ["page-inject.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["*://*.slack.com/*"],
+      "matches": [
+        "*://*.slack.com/*",
+        "*://app.slack.com/*"
+      ],
       "js": ["content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["styles.css"],
-      "matches": ["*://*.slack.com/*"]
     }
   ]
 }

@@ -27,3 +27,6 @@ worker/wrangler.toml
 
 # Cursor / local assets (optional)
 assets/
+
+# Keep fonts tracked — needed for extension UI
+!fonts/

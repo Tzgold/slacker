@@ -1,38 +1,39 @@
-/* Telegram-style ticks — sender only */
+/* In-Slack read receipt ticks */
 
 .slacker-checks {
   display: inline-flex;
   align-items: center;
-  margin-left: 6px;
+  margin-left: 5px;
   vertical-align: middle;
   cursor: default;
   user-select: none;
+  opacity: 0.85;
+}
+
+.slacker-checks:hover {
+  opacity: 1;
 }
 
 .slacker-ticks {
-  width: 18px;
-  height: 11px;
+  width: 16px;
+  height: 10px;
   display: block;
 }
 
 .slacker-ticks path {
   fill: none;
-  stroke: #8b929c;
-  stroke-width: 1.7;
+  stroke: #9ca3af;
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .slacker-ticks .slacker-tick-2 {
-  opacity: 0.35;
-}
-
-.slacker-checks.is-sent .slacker-tick-2 {
   opacity: 0;
 }
 
 .slacker-checks.is-seen .slacker-ticks path {
-  stroke: #0f766e;
+  stroke: #059669;
 }
 
 .slacker-checks.is-seen .slacker-tick-2 {

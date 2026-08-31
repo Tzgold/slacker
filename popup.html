@@ -4,510 +4,59 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Slacker</title>
-  <style>
-    @font-face {
-      font-family: "Syne";
-      font-style: normal;
-      font-weight: 700;
-      font-display: swap;
-      src: url("fonts/syne-700.woff2") format("woff2");
-    }
-    @font-face {
-      font-family: "Syne";
-      font-style: normal;
-      font-weight: 800;
-      font-display: swap;
-      src: url("fonts/syne-800.woff2") format("woff2");
-    }
-    @font-face {
-      font-family: "IBM Plex Sans";
-      font-style: normal;
-      font-weight: 400;
-      font-display: swap;
-      src: url("fonts/plex-400.woff2") format("woff2");
-    }
-    @font-face {
-      font-family: "IBM Plex Sans";
-      font-style: normal;
-      font-weight: 500;
-      font-display: swap;
-      src: url("fonts/plex-500.woff2") format("woff2");
-    }
-    @font-face {
-      font-family: "IBM Plex Sans";
-      font-style: normal;
-      font-weight: 600;
-      font-display: swap;
-      src: url("fonts/plex-600.woff2") format("woff2");
-    }
-
-    :root {
-      --ink: #12151a;
-      --ink-soft: #3d4450;
-      --muted: #7a8290;
-      --line: rgba(18, 21, 26, 0.08);
-      --paper: #f3efe6;
-      --paper-2: #ebe4d6;
-      --teal: #0f766e;
-      --teal-deep: #0b5f59;
-      --teal-wash: rgba(15, 118, 110, 0.12);
-      --danger: #b42318;
-      --radius: 6px;
-      --font-ui: "IBM Plex Sans", "Segoe UI", sans-serif;
-      --font-brand: "Syne", "IBM Plex Sans", sans-serif;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    html { color-scheme: light; }
-
-    body {
-      width: 352px;
-      font-family: var(--font-ui);
-      font-size: 13px;
-      color: var(--ink);
-      background:
-        radial-gradient(120% 80% at 100% -10%, rgba(15, 118, 110, 0.14), transparent 55%),
-        radial-gradient(90% 60% at -20% 110%, rgba(180, 140, 60, 0.1), transparent 50%),
-        linear-gradient(180deg, #f7f3ea 0%, var(--paper) 45%, var(--paper-2) 100%);
-      overflow: hidden;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      opacity: 0.35;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.45'/%3E%3C/svg%3E");
-      mix-blend-mode: multiply;
-      z-index: 0;
-    }
-
-    .shell {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      min-height: 420px;
-      max-height: 520px;
-      animation: rise 320ms ease-out;
-    }
-
-    @keyframes rise {
-      from { opacity: 0; transform: translateY(6px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* Brand */
-    .brand {
-      padding: 18px 18px 12px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .brand-row {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .wordmark {
-      font-family: var(--font-brand);
-      font-weight: 800;
-      font-size: 28px;
-      letter-spacing: -0.06em;
-      line-height: 0.95;
-      color: var(--ink);
-    }
-
-    .wordmark span {
-      color: var(--teal);
-    }
-
-    .live {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-
-    .live-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #b0b6c0;
-      box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.35);
-    }
-
-    .live.is-on {
-      color: var(--teal-deep);
-    }
-
-    .live.is-on .live-dot {
-      background: var(--teal);
-      animation: pulse 1.8s ease-out infinite;
-    }
-
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.45); }
-      70% { box-shadow: 0 0 0 8px rgba(15, 118, 110, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(15, 118, 110, 0); }
-    }
-
-    .tagline {
-      font-size: 12.5px;
-      line-height: 1.45;
-      color: var(--ink-soft);
-      max-width: 28ch;
-    }
-
-    /* Snapshot */
-    .snap {
-      margin: 0 18px;
-      padding: 12px 14px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      border: 1px solid var(--line);
-      background: rgba(255, 252, 246, 0.65);
-      backdrop-filter: blur(6px);
-    }
-
-    .snap-cell {
-      display: grid;
-      gap: 2px;
-    }
-
-    .snap-label {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .snap-value {
-      font-family: var(--font-brand);
-      font-weight: 700;
-      font-size: 22px;
-      letter-spacing: -0.04em;
-      color: var(--ink);
-      line-height: 1.1;
-    }
-
-    .snap-value.seen {
-      color: var(--teal-deep);
-    }
-
-    /* Receipts */
-    .section {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 0;
-      margin-top: 14px;
-    }
-
-    .section-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 18px 8px;
-    }
-
-    .section-title {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .text-btn {
-      border: 0;
-      background: none;
-      padding: 0;
-      font: inherit;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--ink-soft);
-      cursor: pointer;
-      text-decoration: underline;
-      text-underline-offset: 2px;
-      text-decoration-color: transparent;
-      transition: color 140ms ease, text-decoration-color 140ms ease;
-    }
-
-    .text-btn:hover {
-      color: var(--danger);
-      text-decoration-color: currentColor;
-    }
-
-    .list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0 10px 8px;
-      max-height: 220px;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(18, 21, 26, 0.2) transparent;
-    }
-
-    .row {
-      display: grid;
-      grid-template-columns: 10px 1fr auto;
-      gap: 10px;
-      align-items: start;
-      padding: 10px 8px;
-      border-top: 1px solid var(--line);
-      animation: rowIn 240ms ease-out both;
-    }
-
-    .row:first-child { border-top: 0; }
-
-    @keyframes rowIn {
-      from { opacity: 0; transform: translateX(-4px); }
-      to { opacity: 1; transform: translateX(0); }
-    }
-
-    .mark {
-      width: 8px;
-      height: 8px;
-      margin-top: 5px;
-      border-radius: 1px;
-      background: #a8afb8;
-      transform: rotate(45deg);
-    }
-
-    .mark.is-seen {
-      background: var(--teal);
-    }
-
-    .row-main { min-width: 0; }
-
-    .row-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--ink);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .row-meta {
-      margin-top: 2px;
-      font-size: 11px;
-      color: var(--muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .stamp {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      padding: 3px 6px;
-      border: 1px solid currentColor;
-      color: var(--muted);
-      line-height: 1;
-      white-space: nowrap;
-    }
-
-    .stamp.is-seen {
-      color: var(--teal-deep);
-      background: var(--teal-wash);
-      border-color: rgba(15, 118, 110, 0.35);
-    }
-
-    .empty {
-      margin: 4px 8px 12px;
-      padding: 28px 16px;
-      text-align: center;
-      border: 1px dashed rgba(18, 21, 26, 0.16);
-      background: rgba(255, 252, 246, 0.45);
-    }
-
-    .empty strong {
-      display: block;
-      font-family: var(--font-brand);
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      margin-bottom: 6px;
-      color: var(--ink);
-    }
-
-    .empty p {
-      font-size: 12px;
-      line-height: 1.45;
-      color: var(--ink-soft);
-    }
-
-    /* Config */
-    details.config {
-      margin: 4px 18px 0;
-      border-top: 1px solid var(--line);
-      padding-top: 8px;
-    }
-
-    details.config summary {
-      list-style: none;
-      cursor: pointer;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--muted);
-      padding: 6px 0 10px;
-      user-select: none;
-    }
-
-    details.config summary::-webkit-details-marker { display: none; }
-
-    details.config summary::after {
-      content: "Show";
-      float: right;
-      text-transform: none;
-      letter-spacing: 0;
-      font-weight: 500;
-      color: var(--ink-soft);
-    }
-
-    details.config[open] summary::after { content: "Hide"; }
-
-    .config-body {
-      display: grid;
-      gap: 8px;
-      padding-bottom: 12px;
-      animation: rise 200ms ease-out;
-    }
-
-    .field-label {
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--ink-soft);
-    }
-
-    .field {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 6px;
-    }
-
-    .field input {
-      width: 100%;
-      min-width: 0;
-      padding: 8px 10px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: rgba(255, 252, 246, 0.9);
-      color: var(--ink);
-      font: inherit;
-      font-size: 12px;
-      outline: none;
-      transition: border-color 140ms ease, box-shadow 140ms ease;
-    }
-
-    .field input:focus {
-      border-color: rgba(15, 118, 110, 0.55);
-      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
-    }
-
-    .btn {
-      border: 0;
-      border-radius: var(--radius);
-      padding: 8px 12px;
-      background: var(--ink);
-      color: #f7f3ea;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 140ms ease, transform 100ms ease;
-    }
-
-    .btn:hover { background: #1c222c; }
-    .btn:active { transform: translateY(1px); }
-
-    .hint {
-      min-height: 14px;
-      font-size: 11px;
-      color: var(--teal-deep);
-    }
-
-    /* Foot */
-    .foot {
-      margin-top: auto;
-      padding: 10px 18px 14px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      border-top: 1px solid var(--line);
-      font-size: 10.5px;
-      color: var(--muted);
-    }
-
-    .foot strong {
-      font-weight: 600;
-      color: var(--ink-soft);
-    }
-  </style>
+  <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <div class="shell">
-    <header class="brand">
-      <div class="brand-row">
-        <div class="wordmark">Slack<span>er</span></div>
-        <div id="live" class="live" aria-live="polite">
-          <span id="connection-dot" class="live-dot"></span>
-          <span id="live-label">Offline</span>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 18 12"><path d="M1.2 6.4l3 3L10.2 2"/><path d="M7.2 6.4l3 3L16.2 2"/></svg>
+        </div>
+        <div class="brand-text">
+          <h1>Slacker</h1>
+          <p>Read receipts for Slack</p>
         </div>
       </div>
-      <p class="tagline">Telegram-style checks on your messages. Seen only when they also use Slacker.</p>
+      <div id="live" class="status" aria-live="polite">
+        <span id="connection-dot" class="status-dot"></span>
+        <span id="live-label">Offline</span>
+      </div>
     </header>
 
-    <div class="snap" aria-label="Receipt summary">
-      <div class="snap-cell">
-        <div class="snap-label">Sent</div>
-        <div class="snap-value" id="count-delivered">0</div>
+    <div class="stats" aria-label="Summary">
+      <div class="stat">
+        <div class="stat-label">Sent</div>
+        <div class="stat-value" id="count-delivered">0</div>
       </div>
-      <div class="snap-cell">
-        <div class="snap-label">Seen</div>
-        <div class="snap-value seen" id="count-seen">0</div>
+      <div class="stat">
+        <div class="stat-label">Seen</div>
+        <div class="stat-value is-seen" id="count-seen">0</div>
       </div>
     </div>
 
     <section class="section">
-      <div class="section-bar">
-        <h2 class="section-title">Activity</h2>
-        <button type="button" class="text-btn" id="clear-btn">Clear</button>
+      <div class="section-head">
+        <h2>Messages</h2>
+        <button type="button" class="link-btn" id="clear-btn">Clear all</button>
       </div>
       <div class="list" id="receipts-list"></div>
     </section>
 
-    <details class="config">
-      <summary>Endpoint</summary>
-      <div class="config-body">
+    <details class="settings">
+      <summary class="settings-toggle">Connection settings</summary>
+      <div class="settings-body">
         <label class="field-label" for="worker-url">Worker URL</label>
-        <div class="field">
+        <div class="field-row">
           <input id="worker-url" type="url" spellcheck="false" placeholder="https://slacker.tzgold.workers.dev" />
           <button type="button" class="btn" id="save-btn">Save</button>
         </div>
-        <div class="hint" id="saved-msg"></div>
+        <div class="field-hint" id="saved-msg"></div>
       </div>
     </details>
 
-    <footer class="foot">
-      <span id="stats"><strong>Slacker</strong> · local receipts</span>
+    <footer class="footer">
+      <span id="stats">No activity yet</span>
       <span>v1.2</span>
     </footer>
   </div>

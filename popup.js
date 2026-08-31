@@ -4,6 +4,11 @@ const STORAGE_KEY_URL = 'slacker_worker_url';
 const STORAGE_KEY_MSGS = 'slacker_messages';
 const DEFAULT_WORKER = 'https://slacker.tzgold.workers.dev';
 
+const TICKS = {
+  sent: `<svg class="ticks ticks--sent" viewBox="0 0 18 12" aria-hidden="true"><path d="M1.2 6.4l3 3L10.2 2"/><path class="tick-2" d="M7.2 6.4l3 3L16.2 2"/></svg>`,
+  seen: `<svg class="ticks ticks--seen" viewBox="0 0 18 12" aria-hidden="true"><path d="M1.2 6.4l3 3L10.2 2"/><path class="tick-2" d="M7.2 6.4l3 3L16.2 2"/></svg>`,
+};
+
 const workerInput = document.getElementById('worker-url');
 const saveBtn = document.getElementById('save-btn');
 const savedMsg = document.getElementById('saved-msg');
@@ -29,10 +34,10 @@ saveBtn.addEventListener('click', () => {
   const url = workerInput.value.trim().replace(/\/$/, '');
   if (!url) return;
   chrome.storage.local.set({ [STORAGE_KEY_URL]: url }, () => {
-    savedMsg.textContent = 'Endpoint saved.';
+    savedMsg.textContent = 'Saved successfully';
     setTimeout(() => {
       savedMsg.textContent = '';
-    }, 1800);
+    }, 2000);
     testConnection(url);
   });
 });
@@ -57,8 +62,8 @@ async function testConnection(url) {
 }
 
 function setLive(on) {
-  live.classList.toggle('is-on', on);
-  liveLabel.textContent = on ? 'Live' : 'Offline';
+  live.classList.toggle('is-live', on);
+  liveLabel.textContent = on ? 'Connected' : 'Offline';
 }
 
 function escapeHtml(str) {
@@ -79,23 +84,20 @@ function formatWhen(ts) {
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (sameDay) return time;
   const date = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  return `${date} · ${time}`;
+  return `${date}, ${time}`;
 }
 
 function channelLabel(msgId, data) {
   const channelId = data.channelId || String(msgId).split('_')[0] || '';
-  const prefix = channelId.startsWith('D')
-    ? 'DM'
-    : channelId.startsWith('G')
-      ? 'Group'
-      : 'Channel';
-  return `${prefix} · ${channelId.slice(0, 10)}`;
+  if (channelId.startsWith('D')) return 'Direct message';
+  if (channelId.startsWith('G')) return 'Group message';
+  return 'Channel message';
 }
 
 function previewText(data) {
   const t = (data.text || '').replace(/\s+/g, ' ').trim();
   if (!t) return 'Message sent';
-  return t.length > 48 ? `${t.slice(0, 48)}…` : t;
+  return t.length > 52 ? `${t.slice(0, 52)}…` : t;
 }
 
 function renderReceipts(tracked) {
@@ -104,41 +106,42 @@ function renderReceipts(tracked) {
   );
 
   const seenCount = entries.filter(([, v]) => v.seen).length;
-  const deliveredCount = entries.length;
+  const sentCount = entries.length;
 
-  countDelivered.textContent = String(deliveredCount);
+  countDelivered.textContent = String(sentCount);
   countSeen.textContent = String(seenCount);
 
   if (entries.length === 0) {
     receiptsList.innerHTML = `
       <div class="empty">
-        <strong>No receipts yet</strong>
-        <p>Send from Slack in Chrome. One check = sent. Two checks = they opened it with Slacker.</p>
+        <div class="empty-icon">${TICKS.sent}</div>
+        <h3>No messages yet</h3>
+        <p>Send a message in Slack. Receipts appear here automatically.</p>
       </div>`;
-    stats.innerHTML = '<strong>Slacker</strong> · waiting for traffic';
+    stats.textContent = 'No activity yet';
     return;
   }
 
-  stats.innerHTML = `<strong>${seenCount}</strong> seen of <strong>${deliveredCount}</strong>`;
+  stats.innerHTML = `<strong>${seenCount}</strong> of ${sentCount} seen`;
 
   receiptsList.innerHTML = entries
-    .slice(0, 40)
-    .map(([msgId, data], i) => {
+    .slice(0, 50)
+    .map(([msgId, data]) => {
       const seen = !!(data.seen && data.seenAt);
       const when = seen
         ? formatWhen(data.seenAt)
         : data.createdAt
           ? formatWhen(data.createdAt)
           : '';
-      const delay = Math.min(i * 28, 280);
+
       return `
-        <article class="row" style="animation-delay:${delay}ms">
-          <span class="mark ${seen ? 'is-seen' : ''}" aria-hidden="true"></span>
-          <div class="row-main">
-            <div class="row-title">${escapeHtml(previewText(data))}</div>
-            <div class="row-meta">${escapeHtml(channelLabel(msgId, data))}${when ? ` · ${escapeHtml(when)}` : ''}</div>
+        <article class="item">
+          <div class="item-icon">${seen ? TICKS.seen : TICKS.sent}</div>
+          <div class="item-body">
+            <div class="item-text">${escapeHtml(previewText(data))}</div>
+            <div class="item-meta">${escapeHtml(channelLabel(msgId, data))}${when ? ` · ${escapeHtml(when)}` : ''}</div>
           </div>
-          <span class="stamp ${seen ? 'is-seen' : ''}">${seen ? 'Seen' : 'Sent'}</span>
+          <span class="badge ${seen ? 'badge--seen' : 'badge--sent'}">${seen ? 'Seen' : 'Sent'}</span>
         </article>`;
     })
     .join('');

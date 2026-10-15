@@ -10,9 +10,7 @@
   <div class="app">
     <header class="header">
       <div class="brand">
-        <div class="logo" aria-hidden="true">
-          <svg viewBox="0 0 18 12"><path d="M1.2 6.4l3 3L10.2 2"/><path d="M7.2 6.4l3 3L16.2 2"/></svg>
-        </div>
+        <img class="logo" src="icons/icon48.png" width="28" height="28" alt="" />
         <div class="brand-text">
           <h1>Slacker</h1>
           <p>Read receipts for Slack</p>
@@ -23,6 +21,20 @@
         <span id="live-label">Offline</span>
       </div>
     </header>
+
+    <div class="power-row">
+      <div class="power-text">
+        <strong id="power-label">Slacker is on</strong>
+        <span id="power-hint">Tracking sends and Seen pings</span>
+      </div>
+      <label class="switch" title="Pause Slacker">
+        <input type="checkbox" id="power-toggle" checked />
+        <span class="switch-ui" aria-hidden="true"></span>
+        <span class="sr-only">Slacker on/off</span>
+      </label>
+    </div>
+
+    <p class="tip">One check = sent · Two = they opened it with Slacker</p>
 
     <div class="stats" aria-label="Summary">
       <div class="stat">
@@ -38,26 +50,17 @@
     <section class="section">
       <div class="section-head">
         <h2>Messages</h2>
-        <button type="button" class="link-btn" id="clear-btn">Clear all</button>
+        <div class="section-actions">
+          <button type="button" class="link-btn" id="poll-btn">Check now</button>
+          <button type="button" class="link-btn danger" id="clear-btn">Clear all</button>
+        </div>
       </div>
       <div class="list" id="receipts-list"></div>
     </section>
 
-    <details class="settings">
-      <summary class="settings-toggle">Connection settings</summary>
-      <div class="settings-body">
-        <label class="field-label" for="worker-url">Worker URL</label>
-        <div class="field-row">
-          <input id="worker-url" type="url" spellcheck="false" placeholder="https://slacker.tzgold.workers.dev" />
-          <button type="button" class="btn" id="save-btn">Save</button>
-        </div>
-        <div class="field-hint" id="saved-msg"></div>
-      </div>
-    </details>
-
     <footer class="footer">
       <span id="stats">No activity yet</span>
-      <span>v1.2</span>
+      <span>v1.3.7</span>
     </footer>
   </div>
 

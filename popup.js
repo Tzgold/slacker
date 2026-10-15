@@ -1,7 +1,8 @@
-// popup.js
+// popup.js — Worker URL is built-in; users never configure it
 
 const STORAGE_KEY_URL = 'slacker_worker_url';
 const STORAGE_KEY_MSGS = 'slacker_messages';
+const STORAGE_KEY_ENABLED = 'slacker_enabled';
 const DEFAULT_WORKER = 'https://slacker.tzgold.workers.dev';
 
 const TICKS = {
@@ -9,46 +10,54 @@ const TICKS = {
   seen: `<svg class="ticks ticks--seen" viewBox="0 0 18 12" aria-hidden="true"><path d="M1.2 6.4l3 3L10.2 2"/><path class="tick-2" d="M7.2 6.4l3 3L16.2 2"/></svg>`,
 };
 
-const workerInput = document.getElementById('worker-url');
-const saveBtn = document.getElementById('save-btn');
-const savedMsg = document.getElementById('saved-msg');
 const clearBtn = document.getElementById('clear-btn');
+const pollBtn = document.getElementById('poll-btn');
 const receiptsList = document.getElementById('receipts-list');
 const live = document.getElementById('live');
 const liveLabel = document.getElementById('live-label');
 const stats = document.getElementById('stats');
 const countDelivered = document.getElementById('count-delivered');
 const countSeen = document.getElementById('count-seen');
+const powerToggle = document.getElementById('power-toggle');
+const powerLabel = document.getElementById('power-label');
+const powerHint = document.getElementById('power-hint');
 
-chrome.storage.local.get([STORAGE_KEY_URL, STORAGE_KEY_MSGS], (data) => {
-  const url = data[STORAGE_KEY_URL] || DEFAULT_WORKER;
-  workerInput.value = url;
-  if (!data[STORAGE_KEY_URL]) {
-    chrome.storage.local.set({ [STORAGE_KEY_URL]: DEFAULT_WORKER });
-  }
-  testConnection(url);
+function setPowerUi(on) {
+  powerToggle.checked = on;
+  powerLabel.textContent = on ? 'Slacker is on' : 'Slacker is paused';
+  powerHint.textContent = on
+    ? 'Tracking sends and Seen pings'
+    : 'No tracking, no Seen pings until you turn it back on';
+  document.body.classList.toggle('is-paused', !on);
+}
+
+powerToggle.addEventListener('change', () => {
+  const on = powerToggle.checked;
+  chrome.storage.local.set({ [STORAGE_KEY_ENABLED]: on });
+  setPowerUi(on);
+});
+
+chrome.storage.local.set({ [STORAGE_KEY_URL]: DEFAULT_WORKER });
+chrome.storage.local.get([STORAGE_KEY_MSGS, STORAGE_KEY_ENABLED], (data) => {
+  const on = data[STORAGE_KEY_ENABLED] !== false;
+  setPowerUi(on);
+  testConnection(DEFAULT_WORKER);
   renderReceipts(data[STORAGE_KEY_MSGS] || {});
-});
-
-saveBtn.addEventListener('click', () => {
-  const url = workerInput.value.trim().replace(/\/$/, '');
-  if (!url) return;
-  chrome.storage.local.set({ [STORAGE_KEY_URL]: url }, () => {
-    savedMsg.textContent = 'Saved successfully';
-    setTimeout(() => {
-      savedMsg.textContent = '';
-    }, 2000);
-    testConnection(url);
-  });
-});
-
-workerInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') saveBtn.click();
 });
 
 clearBtn.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'CLEAR_RECEIPTS' }, () => {
     renderReceipts({});
+  });
+});
+
+pollBtn.addEventListener('click', () => {
+  pollBtn.textContent = 'Checking…';
+  chrome.runtime.sendMessage({ type: 'FORCE_POLL' }, () => {
+    chrome.storage.local.get(STORAGE_KEY_MSGS, (data) => {
+      renderReceipts(data[STORAGE_KEY_MSGS] || {});
+      pollBtn.textContent = 'Check now';
+    });
   });
 });
 
@@ -101,7 +110,7 @@ function previewText(data) {
 }
 
 function renderReceipts(tracked) {
-  const entries = Object.entries(tracked).sort(
+  const entries = Object.entries(tracked || {}).sort(
     (a, b) => (b[1].createdAt || 0) - (a[1].createdAt || 0)
   );
 

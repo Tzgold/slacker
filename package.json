@@ -1,0 +1,10 @@
+{
+  "name": "slacker",
+  "version": "1.3.7",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/validate.test.mjs && node tests/worker.test.mjs",
+    "pack:store": "powershell -NoProfile -Command \"Compress-Archive -Path manifest.json,background.js,content.js,page-inject.js,popup.html,popup.css,popup.js,styles.css,icons,fonts -DestinationPath slacker-store-1.3.7.zip -Force\""
+  }
+}

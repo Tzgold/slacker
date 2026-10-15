@@ -25,8 +25,14 @@ secrets.json
 wrangler.toml
 worker/wrangler.toml
 
+# Store upload packages
+slacker-store-*.zip
+
 # Cursor / local assets (optional)
 assets/
+
+# Large brand masters (not needed in store zip; keep icons/ only)
+brand/
 
 # Keep fonts tracked — needed for extension UI
 !fonts/

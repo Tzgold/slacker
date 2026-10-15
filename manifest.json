@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Slacker",
-  "version": "1.2.0",
-  "description": "Telegram-style checks on your Slack messages. Seen works when the other person also uses Slacker.",
+  "name": "Slacker — Slack Read Receipts",
+  "version": "1.3.7",
+  "description": "Telegram-style send/seen checks on your Slack messages when both people use Slacker.",
   "permissions": [
     "storage",
     "alarms",
@@ -10,7 +10,7 @@
   ],
   "host_permissions": [
     "*://*.slack.com/*",
-    "*://*.workers.dev/*"
+    "https://slacker.tzgold.workers.dev/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -19,10 +19,17 @@
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
     "default_title": "Slacker"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "content_scripts": [
     {

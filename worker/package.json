@@ -2,6 +2,7 @@
   "name": "slacker-worker",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "login": "wrangler login",
     "kv:create": "wrangler kv namespace create SLACKER_KV",

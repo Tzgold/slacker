@@ -42,6 +42,7 @@ function pass(name) {
   const env = mockEnv();
   const res = await req('/ping', env);
   assert.equal(res.status, 200);
+  assert.equal(res.headers.get('Access-Control-Allow-Origin'), '*');
   assert.equal(await res.text(), 'ok');
   pass('GET /ping');
 }
@@ -137,11 +138,20 @@ function pass(name) {
 {
   const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'manifest.json'), 'utf8'));
   assert.equal(manifest.manifest_version, 3);
-  assert.ok(manifest.host_permissions.every((h) => !h.includes('<')));
-  assert.ok(manifest.host_permissions.includes('https://slacker.tzgold.workers.dev/*'));
+  assert.equal(manifest.host_permissions, undefined);
+  assert.ok(!manifest.permissions.includes('tabs'));
+  assert.ok(
+    manifest.content_scripts.every(
+      (script) => JSON.stringify(script.matches) === JSON.stringify(['https://app.slack.com/*'])
+    )
+  );
   assert.ok(!JSON.stringify(manifest).includes('<all_urls>'));
   assert.ok(!manifest.permissions.includes('webRequest'));
   assert.ok(!manifest.permissions.includes('debugger'));
+  assert.ok(!JSON.stringify(manifest).includes('slacker.tzgold.workers.dev'));
+  const background = readFileSync(join(__dirname, '..', 'background.js'), 'utf8');
+  assert.ok(!background.includes('fetch('));
+  assert.ok(!background.includes('slacker.tzgold.workers.dev'));
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   pass('manifest MV3 + narrow hosts + no dangerous perms');
 }

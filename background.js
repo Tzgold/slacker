@@ -1,28 +1,23 @@
 // background.js
 
-const STORAGE_KEY_URL = 'slacker_worker_url';
 const STORAGE_KEY_MSGS = 'slacker_messages';
 const STORAGE_KEY_ENABLED = 'slacker_enabled';
 const POLL_ALARM = 'slacker_poll';
-const DEFAULT_WORKER = 'https://slacker.tzgold.workers.dev';
-const MSG_ID_RE = /^[CDG][A-Z0-9]{8,}_[0-9]{10,20}$/i;
+const slackPorts = new Set();
 
-function isValidMsgId(id) {
-  return typeof id === 'string' && id.length <= 80 && MSG_ID_RE.test(id);
-}
-
-async function getWorkerUrl() {
-  return DEFAULT_WORKER;
-}
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'slack-page') return;
+  slackPorts.add(port);
+  port.onDisconnect.addListener(() => slackPorts.delete(port));
+});
 
 async function isEnabled() {
   const data = await chrome.storage.local.get(STORAGE_KEY_ENABLED);
   return data[STORAGE_KEY_ENABLED] !== false;
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(() => {
   // Shared backend for every installer — not user-configurable
-  await chrome.storage.local.set({ [STORAGE_KEY_URL]: DEFAULT_WORKER });
   chrome.alarms.create(POLL_ALARM, { periodInMinutes: 0.5 });
 });
 
@@ -36,57 +31,23 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 async function pollForReceipts() {
   if (!(await isEnabled())) return;
-
-  const data = await chrome.storage.local.get([STORAGE_KEY_URL, STORAGE_KEY_MSGS]);
-  const workerUrl = (data[STORAGE_KEY_URL] || DEFAULT_WORKER).replace(/\/$/, '');
-  const tracked = data[STORAGE_KEY_MSGS];
-  if (!tracked) return;
-
-  const unseenIds = Object.entries(tracked)
-    .filter(([id, v]) => !v.seen && isValidMsgId(id))
-    .map(([id]) => id);
-
-  if (unseenIds.length === 0) {
-    updateBadge(Object.values(tracked).filter((v) => v.seen).length);
-    return;
-  }
-
-  let anyUpdated = false;
-
-  for (let i = 0; i < unseenIds.length; i += 40) {
-    const batch = unseenIds.slice(i, i + 40);
+  for (const port of slackPorts) {
     try {
-      const u = new URL(`${workerUrl}/status`);
-      u.searchParams.set('ids', batch.join(','));
-      const res = await fetch(u.toString(), { cache: 'no-store' });
-      if (!res.ok) {
-        console.warn('[Slacker] status HTTP', res.status);
-        continue;
-      }
-      const json = await res.json();
-      for (const [msgId, receipt] of Object.entries(json)) {
-        if (receipt?.seenAt && tracked[msgId]) {
-          tracked[msgId].seen = true;
-          tracked[msgId].seenAt = receipt.seenAt;
-          anyUpdated = true;
-        }
-      }
-    } catch (err) {
-      console.warn('[Slacker] poll error:', err);
+      port.postMessage({ type: 'POLL_RECEIPTS' });
+      return;
+    } catch (_) {
+      slackPorts.delete(port);
     }
-  }
-
-  if (anyUpdated) {
-    await chrome.storage.local.set({ [STORAGE_KEY_MSGS]: tracked });
-    updateBadge(Object.values(tracked).filter((v) => v.seen).length);
-    notifyAllSlackTabs(tracked);
   }
 }
 
-async function notifyAllSlackTabs(tracked) {
-  const tabs = await chrome.tabs.query({ url: ['*://*.slack.com/*', '*://app.slack.com/*'] });
-  for (const tab of tabs) {
-    chrome.tabs.sendMessage(tab.id, { type: 'RECEIPTS_UPDATE', data: tracked }).catch(() => {});
+function notifyAllSlackPages(tracked) {
+  for (const port of slackPorts) {
+    try {
+      port.postMessage({ type: 'RECEIPTS_UPDATE', data: tracked });
+    } catch (_) {
+      slackPorts.delete(port);
+    }
   }
 }
 
@@ -98,29 +59,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'TRACK_MSG') {
     schedulePolls();
     sendResponse({ ok: true });
-  }
-
-  if (msg.type === 'BEACON' && msg.msgId) {
-    if (!isValidMsgId(msg.msgId)) {
-      sendResponse({ ok: false, error: 'invalid_msg_id' });
-      return;
-    }
-    isEnabled()
-      .then((on) => {
-        if (!on) {
-          sendResponse({ ok: false, error: 'paused' });
-          return null;
-        }
-        return getWorkerUrl();
-      })
-      .then(async (workerUrl) => {
-        if (!workerUrl) return;
-        const url = `${workerUrl}/pixel?id=${encodeURIComponent(msg.msgId)}`;
-        const res = await fetch(url, { method: 'GET', cache: 'no-store' });
-        sendResponse({ ok: res.ok, status: res.status });
-      })
-      .catch((err) => sendResponse({ ok: false, error: String(err) }));
-    return true;
   }
 
   if (msg.type === 'GET_RECEIPTS') {
@@ -138,6 +76,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     pollForReceipts().then(() => sendResponse({ ok: true }));
     return true;
   }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes[STORAGE_KEY_MSGS]) return;
+  const tracked = changes[STORAGE_KEY_MSGS].newValue || {};
+  updateBadge(Object.values(tracked).filter((value) => value.seen).length);
+  notifyAllSlackPages(tracked);
 });
 
 function updateBadge(count) {

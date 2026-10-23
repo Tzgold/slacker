@@ -190,11 +190,15 @@ try {
 }
 
 try {
-  chrome.runtime.onMessage.addListener((msg) => {
+  const receiptPort = chrome.runtime.connect({ name: 'slack-page' });
+  receiptPort.onMessage.addListener((msg) => {
     if (!extAlive()) return;
     if (msg.type === 'RECEIPTS_UPDATE') {
       Object.assign(trackedMsgs, msg.data);
       syncPillsToDOM();
+    }
+    if (msg.type === 'POLL_RECEIPTS') {
+      pollReceiptsFromWorker();
     }
   });
 } catch (_) {
@@ -524,7 +528,45 @@ function fireBeacon(msgId) {
   beaconed.add(msgId);
 
   // Route through background — avoids Slack page CSP blocking fetch.
-  safeSendMessage({ type: 'BEACON', msgId });
+  fetch(`${workerUrl}/pixel?id=${encodeURIComponent(msgId)}`, {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'omit',
+  }).catch(() => {
+    // Retry after a temporary network failure when this message is scanned again.
+    beaconed.delete(msgId);
+  });
+}
+
+async function pollReceiptsFromWorker() {
+  if (!enabled || dead) return;
+  const unseenIds = Object.entries(trackedMsgs)
+    .filter(([id, value]) => !value.seen && isValidMsgId(id))
+    .map(([id]) => id);
+  if (!unseenIds.length) return;
+
+  let changed = false;
+  for (let i = 0; i < unseenIds.length; i += 40) {
+    const url = new URL(`${workerUrl}/status`);
+    url.searchParams.set('ids', unseenIds.slice(i, i + 40).join(','));
+    try {
+      const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+      if (!res.ok) continue;
+      const receipts = await res.json();
+      for (const [msgId, receipt] of Object.entries(receipts)) {
+        if (receipt?.seenAt && trackedMsgs[msgId]) {
+          trackedMsgs[msgId].seen = true;
+          trackedMsgs[msgId].seenAt = receipt.seenAt;
+          changed = true;
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (changed) {
+    persistTracked();
+    syncPillsToDOM();
+  }
 }
 
 function isOwnMessage(messageEl) {

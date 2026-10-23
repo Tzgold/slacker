@@ -22,7 +22,7 @@ fonts/*.woff2
 From PowerShell (project root):
 
 ```powershell
-Compress-Archive -Path manifest.json,background.js,content.js,page-inject.js,popup.html,popup.css,popup.js,styles.css,icons,fonts -DestinationPath slacker-store-1.3.0.zip -Force
+Compress-Archive -Path manifest.json,background.js,content.js,page-inject.js,popup.html,popup.css,popup.js,styles.css,icons,fonts -DestinationPath slacker-store-1.3.8.zip -Force
 ```
 
 ## Store listing (copy/paste)
@@ -64,9 +64,7 @@ Privacy
 |------------|-----|
 | `storage` | Save receipt history and user id locally |
 | `alarms` | Poll for Seen updates in the background |
-| `tabs` | Notify open Slack tabs when receipts update |
-| Host `*.slack.com` | Inject ticks / detect sends / report Seen in Slack web |
-| Host `slacker.tzgold.workers.dev` | Shared backend for Seen status |
+| Site access `app.slack.com` | Inject ticks, detect sends, and report Seen in Slack Web |
 
 ## Single purpose
 
@@ -101,11 +99,11 @@ cd C:\Users\Admin\Documents\slacker
 npm test
 ```
 
-Expect **16 passed** (validate + worker security + manifest hygiene).
+Expect **17 passed** (validation + worker security + manifest hygiene + popup state).
 
 ## Store zip
 
-Already built: `slacker-store-1.3.0.zip` (or `npm run pack:store`).
+Already built: `slacker-store-1.3.8.zip` (or `npm run pack:store`).
 
 ## Honest confidence
 

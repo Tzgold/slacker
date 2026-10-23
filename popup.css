@@ -355,6 +355,11 @@ body.is-paused .power-row {
   color: var(--text);
 }
 
+.link-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .link-btn.danger:hover {
   color: var(--danger);
 }

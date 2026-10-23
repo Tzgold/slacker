@@ -29,19 +29,22 @@ function setPowerUi(on) {
     ? 'Tracking sends and Seen pings'
     : 'No tracking, no Seen pings until you turn it back on';
   document.body.classList.toggle('is-paused', !on);
+  pollBtn.disabled = !on;
+  setLive(false, on ? 'Checking…' : 'Paused');
 }
 
 powerToggle.addEventListener('change', () => {
   const on = powerToggle.checked;
   chrome.storage.local.set({ [STORAGE_KEY_ENABLED]: on });
   setPowerUi(on);
+  if (on) testConnection(DEFAULT_WORKER);
 });
 
 chrome.storage.local.set({ [STORAGE_KEY_URL]: DEFAULT_WORKER });
 chrome.storage.local.get([STORAGE_KEY_MSGS, STORAGE_KEY_ENABLED], (data) => {
   const on = data[STORAGE_KEY_ENABLED] !== false;
   setPowerUi(on);
-  testConnection(DEFAULT_WORKER);
+  if (on) testConnection(DEFAULT_WORKER);
   renderReceipts(data[STORAGE_KEY_MSGS] || {});
 });
 
@@ -64,15 +67,15 @@ pollBtn.addEventListener('click', () => {
 async function testConnection(url) {
   try {
     const res = await fetch(`${url}/ping`, { signal: AbortSignal.timeout(4000) });
-    setLive(res.ok);
+    setLive(powerToggle.checked && res.ok, powerToggle.checked ? undefined : 'Paused');
   } catch {
-    setLive(false);
+    setLive(false, powerToggle.checked ? 'Offline' : 'Paused');
   }
 }
 
-function setLive(on) {
+function setLive(on, label = on ? 'Connected' : 'Offline') {
   live.classList.toggle('is-live', on);
-  liveLabel.textContent = on ? 'Connected' : 'Offline';
+  liveLabel.textContent = label;
 }
 
 function escapeHtml(str) {
